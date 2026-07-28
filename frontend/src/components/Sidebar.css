@@ -24,6 +24,7 @@
   padding: 1.5rem 1rem;
   min-height: 70px;
   box-sizing: border-box;
+  
 }
 
 .sidebar--collapsed .sidebar__header {
