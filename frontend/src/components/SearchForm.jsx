@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './SearchForm.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
 
 function SearchForm() {
   const [searchType, setSearchType] = useState('scraper_engine');
