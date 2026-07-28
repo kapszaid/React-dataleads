@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './SearchForm.css';
 
-const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:8000'
-  : 'https://react-dataleads-9eb2bd8b.fastapicloud.dev';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function SearchForm() {
   const [searchType, setSearchType] = useState('scraper_engine');
