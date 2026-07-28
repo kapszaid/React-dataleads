@@ -19,6 +19,7 @@ function SearchForm() {
 
   const isEasyApi = searchType === 'easyapi';
 
+  
   useEffect(() => {
     const fetchLatestRun = async () => {
       try {
