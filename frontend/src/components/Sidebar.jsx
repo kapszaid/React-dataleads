@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './Sidebar.css';
 
-function Sidebar({ activeTab, setActiveTab }) {
+function Sidebar({ activeTab, setActiveTab, onLogout }) {
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
@@ -35,6 +35,18 @@ function Sidebar({ activeTab, setActiveTab }) {
           </button>
         ))}
       </nav>
+
+      <div className="sidebar__footer">
+        <button
+          type="button"
+          className="sidebar__logout-btn"
+          onClick={onLogout}
+          title="Logout"
+        >
+          {!collapsed && <span className="sidebar__logout-text">Logout</span>}
+          <span className="sidebar__logout-icon">↩</span>
+        </button>
+      </div>
     </aside>
   );
 }

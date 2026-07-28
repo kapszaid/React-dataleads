@@ -4,7 +4,7 @@ import logging
 import requests
 from collections import defaultdict
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -59,6 +59,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=1, max_length=150)
+
+class LoginResponse(BaseModel):
+    username: str
+    status: str
 
 class EnhanceRequest(BaseModel):
     keyword: str = Field(..., min_length=1, max_length=500)
@@ -235,6 +243,32 @@ def debug_token():
         "mongo_db_name": MONGO_DB_NAME
     }
 
+@app.post("/api/login", response_model=LoginResponse)
+def login_user(payload: LoginRequest):
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable."
+        )
+    
+    # Query users collection
+    user_doc = db.users.find_one({"username": payload.username})
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password."
+        )
+        
+    # Check password
+    stored_password = user_doc.get("password")
+    if stored_password != payload.password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password."
+        )
+        
+    return LoginResponse(username=payload.username, status="success")
+
 @app.post("/api/enhance", response_model=EnhanceResponse)
 def enhance_keyword(payload: EnhanceRequest):
     base_keywords = parse_entries(payload.keyword)
@@ -325,7 +359,14 @@ Example output:
         )
 
 @app.post("/api/search/start", response_model=SearchStartResponse)
-def run_search_start(payload: SearchRequest):
+def run_search_start(payload: SearchRequest, x_user_username: str | None = Header(None)):
+    if not x_user_username or not x_user_username.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid user credentials."
+        )
+    username = x_user_username.strip()
+
     try:
         if payload.searchType in ("scraper_engine", "simpleapi", "scrapio"):
             entries = parse_entries(payload.searchInput)
@@ -360,6 +401,7 @@ def run_search_start(payload: SearchRequest):
                 run_doc = {
                     "_id": run_id,
                     "run_id": run_id,
+                    "username": username,
                     "search_type": payload.searchType,
                     "search_input": payload.searchInput,
                     "max_items": payload.maxItems,
@@ -383,14 +425,21 @@ def run_search_start(payload: SearchRequest):
         )
 
 @app.get("/api/search/status/{run_id}", response_model=SearchResponse)
-def run_search_status(run_id: str):
+def run_search_status(run_id: str, x_user_username: str | None = Header(None)):
+    if not x_user_username or not x_user_username.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid user credentials."
+        )
+    username = x_user_username.strip()
+
     if db is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection is unavailable to retrieve status."
         )
     
-    run_doc = db.fb_groups_extractor.find_one({"_id": run_id})
+    run_doc = db.fb_groups_extractor.find_one({"_id": run_id, "username": username})
     if not run_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -457,26 +506,45 @@ def run_search_status(run_id: str):
     )
 
 @app.post("/api/search/stop/{run_id}")
-def run_search_stop(run_id: str):
+def run_search_stop(run_id: str, x_user_username: str | None = Header(None)):
+    if not x_user_username or not x_user_username.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid user credentials."
+        )
+    username = x_user_username.strip()
+
     if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Apify API token not configured."
         )
         
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable."
+        )
+        
+    run_doc = db.fb_groups_extractor.find_one({"_id": run_id, "username": username})
+    if not run_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search run not found."
+        )
+
     try:
         client = ApifyClient(APIFY_API_TOKEN)
         client.run(run_id).abort()
         
-        if db is not None:
-            db.fb_groups_extractor.update_one(
-                {"_id": run_id},
-                {
-                    "$set": {
-                        "status": "ABORTED"
-                    }
+        db.fb_groups_extractor.update_one(
+            {"_id": run_id},
+            {
+                "$set": {
+                    "status": "ABORTED"
                 }
-            )
+            }
+        )
         return {"status": "ABORTED"}
     except Exception as e:
         logger.error(f"Failed to abort run {run_id}: {e}")
@@ -486,14 +554,21 @@ def run_search_stop(run_id: str):
         )
 
 @app.get("/api/search/latest", response_model=SearchResponse)
-def get_latest_search():
+def get_latest_search(x_user_username: str | None = Header(None)):
+    if not x_user_username or not x_user_username.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid user credentials."
+        )
+    username = x_user_username.strip()
+
     if db is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection is unavailable."
         )
     
-    latest_run = db.fb_groups_extractor.find_one(sort=[("timestamp", -1)])
+    latest_run = db.fb_groups_extractor.find_one({"username": username}, sort=[("timestamp", -1)])
     if not latest_run:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -558,9 +633,3 @@ def get_latest_search():
         search_input=latest_run.get("search_input", ""),
         max_items=latest_run.get("max_items", 20)
     )
-
-
-
-
-
-    allow_origins=["https://dataleads.pages.dev"]

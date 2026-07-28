@@ -19,7 +19,12 @@ function SearchForm() {
   useEffect(() => {
     const fetchLatestRun = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/search/latest');
+        const username = localStorage.getItem('username') || '';
+        const response = await fetch('http://localhost:8000/api/search/latest', {
+          headers: {
+            'X-User-Username': username
+          }
+        });
         if (!response.ok) return;
         const data = await response.json();
         setSearchResults(data);
@@ -44,7 +49,12 @@ function SearchForm() {
     if (searchLoading && currentRunId && searchStatus === 'RUNNING') {
       intervalId = setInterval(async () => {
         try {
-          const response = await fetch(`http://localhost:8000/api/search/status/${currentRunId}`);
+          const username = localStorage.getItem('username') || '';
+          const response = await fetch(`http://localhost:8000/api/search/status/${currentRunId}`, {
+            headers: {
+              'X-User-Username': username
+            }
+          });
           if (!response.ok) {
             throw new Error('Failed to fetch status');
           }
@@ -91,10 +101,12 @@ function SearchForm() {
     setCurrentRunId(null);
     setSearchStatus(null);
     try {
+      const username = localStorage.getItem('username') || '';
       const response = await fetch('http://localhost:8000/api/search/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-Username': username
         },
         body: JSON.stringify({
           searchType,
@@ -119,8 +131,12 @@ function SearchForm() {
   const handleStopSearch = async () => {
     if (!currentRunId) return;
     try {
+      const username = localStorage.getItem('username') || '';
       const response = await fetch(`http://localhost:8000/api/search/stop/${currentRunId}`, {
         method: 'POST',
+        headers: {
+          'X-User-Username': username
+        }
       });
       if (!response.ok) {
         const errorData = await response.json();
