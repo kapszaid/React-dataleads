@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './SearchForm.css';
 
 function SearchForm() {
@@ -11,8 +11,59 @@ function SearchForm() {
   const [selectedSuggestions, setSelectedSuggestions] = useState(new Set());
   const [searchResults, setSearchResults] = useState(null);
   const [activeTab, setActiveTab] = useState('table');
+  const [currentRunId, setCurrentRunId] = useState(null);
+  const [searchStatus, setSearchStatus] = useState(null);
 
   const isEasyApi = searchType === 'easyapi';
+
+  useEffect(() => {
+    const fetchLatestRun = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/search/latest');
+        if (!response.ok) return;
+        const data = await response.json();
+        setSearchResults(data);
+        setSearchType(data.search_type || 'scraper_engine');
+        setSearchInput(data.search_input || '');
+        setMaxItems(data.max_items || 20);
+        setCurrentRunId(data.run_id || null);
+        setSearchStatus(data.status || null);
+        
+        if (data.status === 'RUNNING' && data.run_id) {
+          setSearchLoading(true);
+        }
+      } catch (err) {
+        console.error('Failed to load latest search run:', err);
+      }
+    };
+    fetchLatestRun();
+  }, []);
+
+  useEffect(() => {
+    let intervalId;
+    if (searchLoading && currentRunId && searchStatus === 'RUNNING') {
+      intervalId = setInterval(async () => {
+        try {
+          const response = await fetch(`http://localhost:8000/api/search/status/${currentRunId}`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch status');
+          }
+          const data = await response.json();
+          setSearchStatus(data.status);
+          if (data.status !== 'RUNNING') {
+            setSearchResults(data);
+            setSearchLoading(false);
+            clearInterval(intervalId);
+          }
+        } catch (err) {
+          console.error('Error polling status:', err);
+        }
+      }, 3000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [searchLoading, currentRunId, searchStatus]);
 
   const parseEntries = (text) => {
     return text
@@ -37,8 +88,10 @@ function SearchForm() {
     }
     setSearchLoading(true);
     setSearchResults(null);
+    setCurrentRunId(null);
+    setSearchStatus(null);
     try {
-      const response = await fetch('http://localhost:8000/api/search', {
+      const response = await fetch('http://localhost:8000/api/search/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,15 +104,34 @@ function SearchForm() {
       });
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Search failed');
+        throw new Error(errorData.detail || 'Failed to start search');
       }
       const data = await response.json();
-      setSearchResults(data);
+      setCurrentRunId(data.run_id);
+      setSearchStatus(data.status);
     } catch (err) {
       console.error(err);
       alert(`Search failed: ${err.message}`);
-    } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handleStopSearch = async () => {
+    if (!currentRunId) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/search/stop/${currentRunId}`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to stop search');
+      }
+      setSearchStatus('ABORTED');
+      setSearchLoading(false);
+      alert('Search run aborted successfully.');
+    } catch (err) {
+      console.error(err);
+      alert(`Failed to stop search: ${err.message}`);
     }
   };
 
@@ -269,17 +341,33 @@ function SearchForm() {
           >
             {searchLoading ? 'Searching...' : 'Search'}
           </button>
+          
+          {searchLoading && currentRunId && searchStatus === 'RUNNING' && (
+            <button
+              type="button"
+              className="search-form__stop-btn"
+              onClick={handleStopSearch}
+            >
+              Stop Search
+            </button>
+          )}
         </div>
       </form>
 
-      {searchLoading && (
+      {searchLoading && searchStatus === 'RUNNING' && (
         <div className="search-form__running-status">
           <div className="search-form__spinner"></div>
-          <p>Running Apify actor to extract Facebook groups... Please wait.</p>
+          <p>Scraping Facebook groups in the background... You can close this tab or navigate away. The run will continue.</p>
         </div>
       )}
 
-      {searchResults && (
+      {searchResults && (searchResults.status === 'FAILED' || searchResults.status === 'ABORTED') && (
+        <div className="search-form__failed-status">
+          <p>Search run {searchResults.status.toLowerCase()}. Please adjust your inputs and try again.</p>
+        </div>
+      )}
+
+      {searchResults && searchResults.status === 'SUCCEEDED' && (
         <div className="search-form__results">
           <hr className="search-form__divider" />
           

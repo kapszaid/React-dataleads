@@ -84,10 +84,19 @@ class GroupItem(BaseModel):
     joinState: str | None = ""
     profilePicture: str | None = ""
 
+class SearchStartResponse(BaseModel):
+    run_id: str
+    status: str
+
 class SearchResponse(BaseModel):
+    status: str
     total_groups: int
     groups: list[GroupItem]
     raw_output: dict
+    run_id: str | None = ""
+    search_type: str | None = ""
+    search_input: str | None = ""
+    max_items: int | None = 20
 
 def parse_entries(raw_text: str) -> list[str]:
     values = []
@@ -135,6 +144,34 @@ def run_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[list[di
     dataset_id = get_field(run, "defaultDatasetId") or get_field(run, "default_dataset_id")
     items = list(client.dataset(dataset_id).iterate_items()) if dataset_id else []
     return items, run_input
+
+def start_starturls_groups_actor(actor_id: str, start_urls: list[str], max_items: int) -> tuple[str, dict]:
+    if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
+        raise RuntimeError("Apify API token not configured.")
+    client = ApifyClient(APIFY_API_TOKEN)
+    run_input = {
+        "startUrls": start_urls,
+        "maxItems": int(max_items)
+    }
+    run = client.actor(actor_id).start(run_input=run_input)
+    run_id = get_field(run, "id") or get_field(run, "run_id")
+    if not run_id:
+        raise RuntimeError("Failed to obtain run ID from Apify.")
+    return run_id, run_input
+
+def start_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[str, dict]:
+    if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
+        raise RuntimeError("Apify API token not configured.")
+    client = ApifyClient(APIFY_API_TOKEN)
+    run_input = {
+        "searchQuery": search_query,
+        "maxItems": int(max_items)
+    }
+    run = client.actor(EASYAPI_GROUPS_ACTOR_ID).start(run_input=run_input)
+    run_id = get_field(run, "id") or get_field(run, "run_id")
+    if not run_id:
+        raise RuntimeError("Failed to obtain run ID from Apify.")
+    return run_id, run_input
 
 def build_grouped_raw_output(items: list[dict], run_input: dict) -> dict:
     grouped = defaultdict(list)
@@ -287,8 +324,8 @@ Example output:
             detail=f"Received malformed response from AI: {str(e)}"
         )
 
-@app.post("/api/search", response_model=SearchResponse)
-def run_search(payload: SearchRequest):
+@app.post("/api/search/start", response_model=SearchStartResponse)
+def run_search_start(payload: SearchRequest):
     try:
         if payload.searchType in ("scraper_engine", "simpleapi", "scrapio"):
             entries = parse_entries(payload.searchInput)
@@ -297,15 +334,12 @@ def run_search(payload: SearchRequest):
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Please enter at least one keyword or Facebook group URL."
                 )
-            
             actor_id = {
                 "scraper_engine": SCRAPER_ENGINE_GROUPS_ACTOR_ID,
                 "simpleapi": SIMPLEAPI_GROUPS_ACTOR_ID,
                 "scrapio": SCRAPIO_GROUPS_ACTOR_ID,
             }[payload.searchType]
-            
-            items, run_input = run_starturls_groups_actor(actor_id, entries, payload.maxItems)
-            raw_output = build_grouped_raw_output(items, run_input)
+            run_id, run_input = start_starturls_groups_actor(actor_id, entries, payload.maxItems)
             
         elif payload.searchType == "easyapi":
             query = payload.searchInput.strip()
@@ -314,41 +348,213 @@ def run_search(payload: SearchRequest):
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Please enter a keyword query for EasyAPI."
                 )
-                
-            items, run_input = run_easyapi_groups_actor(query, payload.maxItems)
-            raw_output = build_easyapi_raw_output(items, run_input)
-            
+            run_id, run_input = start_easyapi_groups_actor(query, payload.maxItems)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unknown search type: {payload.searchType}"
             )
-            
-        groups_list = build_groups_list(items)
-        
+
         if db is not None:
             try:
                 run_doc = {
+                    "_id": run_id,
+                    "run_id": run_id,
                     "search_type": payload.searchType,
                     "search_input": payload.searchInput,
                     "max_items": payload.maxItems,
+                    "status": "RUNNING",
                     "timestamp": datetime.utcnow(),
-                    "total_groups": len(items),
-                    "groups": groups_list,
-                    "raw_output": raw_output
+                    "total_groups": 0,
+                    "groups": [],
+                    "raw_output": {},
+                    "run_input": run_input
                 }
                 db.fb_groups_extractor.insert_one(run_doc)
             except Exception as e:
-                logger.error(f"Failed to save search run to MongoDB: {e}")
+                logger.error(f"Failed to save search start to MongoDB: {e}")
 
-        return SearchResponse(
-            total_groups=len(items),
-            groups=groups_list,
-            raw_output=raw_output
-        )
+        return SearchStartResponse(run_id=run_id, status="RUNNING")
 
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc)
         )
+
+@app.get("/api/search/status/{run_id}", response_model=SearchResponse)
+def run_search_status(run_id: str):
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable to retrieve status."
+        )
+    
+    run_doc = db.fb_groups_extractor.find_one({"_id": run_id})
+    if not run_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search run not found."
+        )
+
+    db_status = run_doc.get("status")
+    if db_status == "RUNNING":
+        try:
+            client = ApifyClient(APIFY_API_TOKEN)
+            run = client.run(run_id).get()
+            apify_status = get_field(run, "status", "UNKNOWN")
+            
+            if apify_status == "SUCCEEDED":
+                dataset_id = get_field(run, "defaultDatasetId") or get_field(run, "default_dataset_id")
+                logger.info(f"Poller: Run {run_id} succeeded. Dataset ID: {dataset_id}")
+                items = list(client.dataset(dataset_id).iterate_items()) if dataset_id else []
+                logger.info(f"Poller: Iterated {len(items)} items from dataset.")
+                groups_list = build_groups_list(items)
+                
+                search_type = run_doc.get("search_type")
+                run_input = run_doc.get("run_input", {})
+                if search_type == "easyapi":
+                    raw_output = build_easyapi_raw_output(items, run_input)
+                else:
+                    raw_output = build_grouped_raw_output(items, run_input)
+                    
+                db.fb_groups_extractor.update_one(
+                    {"_id": run_id},
+                    {
+                         "$set": {
+                             "status": "SUCCEEDED",
+                             "total_groups": len(items),
+                             "groups": groups_list,
+                             "raw_output": raw_output
+                         }
+                    }
+                )
+                run_doc = db.fb_groups_extractor.find_one({"_id": run_id})
+                
+            elif apify_status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                db.fb_groups_extractor.update_one(
+                    {"_id": run_id},
+                    {
+                        "$set": {
+                            "status": "FAILED" if apify_status != "ABORTED" else "ABORTED"
+                        }
+                    }
+                )
+                run_doc = db.fb_groups_extractor.find_one({"_id": run_id})
+                
+        except Exception as e:
+            logger.error(f"Failed to poll status from Apify: {e}")
+            
+    return SearchResponse(
+        status=run_doc.get("status", "UNKNOWN"),
+        total_groups=run_doc.get("total_groups", 0),
+        groups=run_doc.get("groups", []),
+        raw_output=run_doc.get("raw_output", {}),
+        run_id=run_doc.get("run_id", ""),
+        search_type=run_doc.get("search_type", ""),
+        search_input=run_doc.get("search_input", ""),
+        max_items=run_doc.get("max_items", 20)
+    )
+
+@app.post("/api/search/stop/{run_id}")
+def run_search_stop(run_id: str):
+    if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Apify API token not configured."
+        )
+        
+    try:
+        client = ApifyClient(APIFY_API_TOKEN)
+        client.run(run_id).abort()
+        
+        if db is not None:
+            db.fb_groups_extractor.update_one(
+                {"_id": run_id},
+                {
+                    "$set": {
+                        "status": "ABORTED"
+                    }
+                }
+            )
+        return {"status": "ABORTED"}
+    except Exception as e:
+        logger.error(f"Failed to abort run {run_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to abort run on Apify: {str(e)}"
+        )
+
+@app.get("/api/search/latest", response_model=SearchResponse)
+def get_latest_search():
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable."
+        )
+    
+    latest_run = db.fb_groups_extractor.find_one(sort=[("timestamp", -1)])
+    if not latest_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No runs found."
+        )
+
+    db_status = latest_run.get("status")
+    run_id = latest_run.get("run_id")
+    
+    if db_status == "RUNNING" and run_id:
+        try:
+            client = ApifyClient(APIFY_API_TOKEN)
+            run = client.run(run_id).get()
+            apify_status = get_field(run, "status", "UNKNOWN")
+            
+            if apify_status == "SUCCEEDED":
+                dataset_id = get_field(run, "defaultDatasetId") or get_field(run, "default_dataset_id")
+                logger.info(f"Latest: Run {run_id} succeeded. Dataset ID: {dataset_id}")
+                items = list(client.dataset(dataset_id).iterate_items()) if dataset_id else []
+                logger.info(f"Latest: Iterated {len(items)} items from dataset.")
+                groups_list = build_groups_list(items)
+                
+                search_type = latest_run.get("search_type")
+                run_input = latest_run.get("run_input", {})
+                if search_type == "easyapi":
+                    raw_output = build_easyapi_raw_output(items, run_input)
+                else:
+                    raw_output = build_grouped_raw_output(items, run_input)
+                    
+                db.fb_groups_extractor.update_one(
+                    {"_id": run_id},
+                    {
+                        "$set": {
+                            "status": "SUCCEEDED",
+                            "total_groups": len(items),
+                            "groups": groups_list,
+                            "raw_output": raw_output
+                        }
+                    }
+                )
+                latest_run = db.fb_groups_extractor.find_one({"_id": run_id})
+            elif apify_status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                db.fb_groups_extractor.update_one(
+                    {"_id": run_id},
+                    {
+                        "$set": {
+                            "status": "FAILED" if apify_status != "ABORTED" else "ABORTED"
+                        }
+                    }
+                )
+                latest_run = db.fb_groups_extractor.find_one({"_id": run_id})
+        except Exception as e:
+            logger.error(f"Failed to poll latest run status from Apify: {e}")
+
+    return SearchResponse(
+        status=latest_run.get("status", "UNKNOWN"),
+        total_groups=latest_run.get("total_groups", 0),
+        groups=latest_run.get("groups", []),
+        raw_output=latest_run.get("raw_output", {}),
+        run_id=latest_run.get("run_id", ""),
+        search_type=latest_run.get("search_type", ""),
+        search_input=latest_run.get("search_input", ""),
+        max_items=latest_run.get("max_items", 20)
+    )
