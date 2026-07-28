@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import './Login.css';
 
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://react-dataleads-9eb2bd8b.fastapicloud.dev';
+
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -16,7 +20,7 @@ function Login({ onLoginSuccess }) {
     setLoading(true);
     setErrorMessage('');
     try {
-      const response = await fetch('http://localhost:8000/api/login', {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

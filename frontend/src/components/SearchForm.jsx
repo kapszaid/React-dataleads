@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import './SearchForm.css';
 
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://react-dataleads-9eb2bd8b.fastapicloud.dev';
+
 function SearchForm() {
   const [searchType, setSearchType] = useState('scraper_engine');
   const [searchInput, setSearchInput] = useState('');
@@ -20,7 +24,7 @@ function SearchForm() {
     const fetchLatestRun = async () => {
       try {
         const username = localStorage.getItem('username') || '';
-        const response = await fetch('http://localhost:8000/api/search/latest', {
+        const response = await fetch(`${API_BASE_URL}/api/search/latest`, {
           headers: {
             'X-User-Username': username
           }
@@ -50,7 +54,7 @@ function SearchForm() {
       intervalId = setInterval(async () => {
         try {
           const username = localStorage.getItem('username') || '';
-          const response = await fetch(`http://localhost:8000/api/search/status/${currentRunId}`, {
+          const response = await fetch(`${API_BASE_URL}/api/search/status/${currentRunId}`, {
             headers: {
               'X-User-Username': username
             }
@@ -102,7 +106,7 @@ function SearchForm() {
     setSearchStatus(null);
     try {
       const username = localStorage.getItem('username') || '';
-      const response = await fetch('http://localhost:8000/api/search/start', {
+      const response = await fetch(`${API_BASE_URL}/api/search/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -132,7 +136,7 @@ function SearchForm() {
     if (!currentRunId) return;
     try {
       const username = localStorage.getItem('username') || '';
-      const response = await fetch(`http://localhost:8000/api/search/stop/${currentRunId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/search/stop/${currentRunId}`, {
         method: 'POST',
         headers: {
           'X-User-Username': username
@@ -159,7 +163,7 @@ function SearchForm() {
     }
     setEnhanceLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/enhance', {
+      const response = await fetch(`${API_BASE_URL}/api/enhance`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
