@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+motor
+python-dotenv
+httpx
+requests
+apify-client
+pymongo
