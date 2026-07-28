@@ -558,3 +558,9 @@ def get_latest_search():
         search_input=latest_run.get("search_input", ""),
         max_items=latest_run.get("max_items", 20)
     )
+
+
+
+
+
+    allow_origins=["https://dataleads.pages.dev"]
