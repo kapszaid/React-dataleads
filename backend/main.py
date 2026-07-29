@@ -79,6 +79,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "DataLeads API Backend is running"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=150)
     password: str = Field(..., min_length=1, max_length=150)
@@ -828,4 +839,10 @@ def get_facebook_logs():
 @app.delete("/api/facebook/logs")
 def clear_facebook_logs():
     auto_db.clear_logs()
-    return {"status": "success", "message": "Activity logs cleared."}
+    return {"status": "success"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8008))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

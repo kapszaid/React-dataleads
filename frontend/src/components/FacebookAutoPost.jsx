@@ -114,13 +114,18 @@ function FacebookAutoPost() {
   useEffect(() => {
     fetchAccounts();
     pollAutomationStatus();
+  }, []);
+
+  // Poll status ONLY when automation is actively running
+  useEffect(() => {
+    if (!isRunning) return;
 
     const intervalId = setInterval(() => {
       pollAutomationStatus();
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(intervalId);
-  }, []);
+  }, [isRunning]);
 
   const toggleAccountSelection = (accId) => {
     if (selectedAccounts.includes(accId)) {
