@@ -1,11 +1,18 @@
-from __future__ import annotations
+"""
+auto_db.py
+----------
+Database management module for social automation app.
+Provides persistent state storage for accounts, group tasks, post engagement queue, activity logs, and browser sessions.
+Fully backed by MongoDB Atlas with 0 disk storage bloat.
+Compatible with Python 3.8+.
+"""
 
 import json
 import os
 import threading
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Union
 from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Union, Any
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,7 +68,7 @@ def _write_json(filepath: Path, data):
 
 # ── SESSIONS IN MONGODB ──────────────────────────────────────────────────────
 
-def save_account_session_state(account_id: str, cookies: list[dict] = None, storage_state: dict = None):
+def save_account_session_state(account_id: str, cookies: Optional[List[Dict]] = None, storage_state: Optional[Dict] = None):
     if mongo_db is not None:
         try:
             update_fields = {"updated_at": datetime.now().isoformat()}
@@ -79,7 +86,7 @@ def save_account_session_state(account_id: str, cookies: list[dict] = None, stor
             pass
 
 
-def load_account_session_state(account_id: str) -> dict:
+def load_account_session_state(account_id: str) -> Dict:
     if mongo_db is not None:
         try:
             doc = mongo_db.fb_sessions.find_one({"account_id": account_id}, {"_id": 0})
@@ -92,7 +99,7 @@ def load_account_session_state(account_id: str) -> dict:
 
 # ── ACCOUNTS ─────────────────────────────────────────────────────────────────
 
-def load_accounts() -> list[dict]:
+def load_accounts() -> List[Dict]:
     if mongo_db is not None:
         try:
             return list(mongo_db.fb_accounts.find({}, {"_id": 0}))
@@ -101,7 +108,7 @@ def load_accounts() -> list[dict]:
     return _read_json(ACCOUNTS_FILE, [])
 
 
-def save_accounts(accounts: list[dict]):
+def save_accounts(accounts: List[Dict]):
     if mongo_db is not None:
         try:
             mongo_db.fb_accounts.delete_many({})
@@ -113,7 +120,7 @@ def save_accounts(accounts: list[dict]):
     _write_json(ACCOUNTS_FILE, accounts)
 
 
-def add_account(account_id: str, platform: str = "facebook", cookies: list[dict] = None, proxy: str = "", status: str = "active", session_dir: str = "") -> bool:
+def add_account(account_id: str, platform: str = "facebook", cookies: Optional[List[Dict]] = None, proxy: str = "", status: str = "active", session_dir: str = "") -> bool:
     account_id = account_id.strip()
     if not account_id:
         return False
@@ -181,7 +188,7 @@ def release_all_account_locks(account_id: str):
 
 # ── GROUPS QUEUE ─────────────────────────────────────────────────────────────
 
-def load_groups() -> list[dict]:
+def load_groups() -> List[Dict]:
     if mongo_db is not None:
         try:
             return list(mongo_db.fb_groups.find({}, {"_id": 0}))
@@ -190,7 +197,7 @@ def load_groups() -> list[dict]:
     return _read_json(GROUPS_FILE, [])
 
 
-def save_groups(groups: list[dict]):
+def save_groups(groups: List[Dict]):
     if mongo_db is not None:
         try:
             mongo_db.fb_groups.delete_many({})
@@ -202,7 +209,7 @@ def save_groups(groups: list[dict]):
     _write_json(GROUPS_FILE, groups)
 
 
-def import_groups(group_urls: list[str], platform: str = "facebook", post_content: str = "") -> int:
+def import_groups(group_urls: List[str], platform: str = "facebook", post_content: str = "") -> int:
     groups = load_groups()
     existing_urls = {g.get("group_url", "").strip().lower() for g in groups}
     added_count = 0
@@ -230,7 +237,7 @@ def import_groups(group_urls: list[str], platform: str = "facebook", post_conten
     return added_count
 
 
-def get_pending_group_tasks(account_id: str = "", platform: str = "facebook", status: str = "pending") -> list[dict]:
+def get_pending_group_tasks(account_id: str = "", platform: str = "facebook", status: str = "pending") -> List[Dict]:
     groups = load_groups()
     pending = []
     for g in groups:
@@ -275,7 +282,7 @@ def finalize_group_task(account_id: str, group_url: str, status: str, note: str 
 
 # ── POSTS ENGAGEMENT QUEUE ───────────────────────────────────────────────────
 
-def load_posts() -> list[dict]:
+def load_posts() -> List[Dict]:
     if mongo_db is not None:
         try:
             return list(mongo_db.fb_posts.find({}, {"_id": 0}))
@@ -284,7 +291,7 @@ def load_posts() -> list[dict]:
     return _read_json(POSTS_FILE, [])
 
 
-def save_posts(posts: list[dict]):
+def save_posts(posts: List[Dict]):
     if mongo_db is not None:
         try:
             mongo_db.fb_posts.delete_many({})
@@ -296,7 +303,7 @@ def save_posts(posts: list[dict]):
     _write_json(POSTS_FILE, posts)
 
 
-def import_posts(post_urls: list[str], comment_text: str = "", platform: str = "facebook") -> int:
+def import_posts(post_urls: List[str], comment_text: str = "", platform: str = "facebook") -> int:
     posts = load_posts()
     existing_urls = {p.get("post_url", "").strip().lower() for p in posts}
     added_count = 0
@@ -364,7 +371,7 @@ def save_post_engagement_result(account_id: str, post_url: str, liked: bool, com
 
 # ── LOGS ─────────────────────────────────────────────────────────────────────
 
-def load_logs() -> list[dict]:
+def load_logs() -> List[Dict]:
     if mongo_db is not None:
         try:
             return list(mongo_db.fb_logs.find({}, {"_id": 0}).sort("timestamp", -1))
@@ -373,7 +380,7 @@ def load_logs() -> list[dict]:
     return _read_json(LOGS_FILE, [])
 
 
-def save_logs(logs: list[dict]):
+def save_logs(logs: List[Dict]):
     if mongo_db is not None:
         try:
             mongo_db.fb_logs.delete_many({})

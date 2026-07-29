@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Union, Any
 
 from playwright.sync_api import sync_playwright
 
@@ -65,7 +66,7 @@ def add_state_log(msg: str):
 
 # ── PROXY & COOKIE PARSERS ───────────────────────────────────────────────────
 
-def parse_proxy(proxy_str: str) -> dict | None:
+def parse_proxy(proxy_str: str) -> Optional[Dict]:
     proxy_str = (proxy_str or "").strip()
     if not proxy_str:
         return None
@@ -106,7 +107,7 @@ def parse_proxy(proxy_str: str) -> dict | None:
         return None
 
 
-def parse_cookies_input(cookies_str: str) -> list[dict]:
+def parse_cookies_input(cookies_str: str) -> List[Dict]:
     cookies_str = cookies_str.strip()
     if not cookies_str:
         return []
@@ -130,7 +131,7 @@ def parse_cookies_input(cookies_str: str) -> list[dict]:
     return parsed
 
 
-def is_facebook_logged_in(page) -> tuple[bool, str]:
+def is_facebook_logged_in(page) -> Tuple[bool, str]:
     page.wait_for_timeout(1500)
     url = page.url.lower()
     for kw in ["/login", "/checkpoint", "/recover", "/login.php", "two_factor_auth"]:
@@ -509,7 +510,7 @@ def detect_fb_group_state(page) -> str:
     return "unknown"
 
 
-def join_fb_group(page, log_func=None) -> tuple[str, str]:
+def join_fb_group(page, log_func=None) -> Tuple[str, str]:
     if STOP_EVENT.is_set():
         return "failed", "Stop requested"
 
@@ -603,7 +604,7 @@ def mute_fb_group(page, log_func=None) -> bool:
         return False
 
 
-def post_to_fb_group(page, post_text: str, log_func=None) -> tuple[str, str]:
+def post_to_fb_group(page, post_text: str, log_func=None) -> Tuple[str, str]:
     if STOP_EVENT.is_set() or not post_text or not post_text.strip():
         return "skipped", "No post content specified or stop requested"
 
