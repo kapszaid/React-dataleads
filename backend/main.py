@@ -392,7 +392,7 @@ Example output:
         )
 
 @app.post("/api/search/start", response_model=SearchStartResponse)
-def run_search_start(payload: SearchRequest, x_user_username: str | None = Header(None)):
+def run_search_start(payload: SearchRequest, x_user_username: Optional[str] = Header(None)):
     if not x_user_username or not x_user_username.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -458,7 +458,7 @@ def run_search_start(payload: SearchRequest, x_user_username: str | None = Heade
         )
 
 @app.get("/api/search/status/{run_id}", response_model=SearchResponse)
-def run_search_status(run_id: str, x_user_username: str | None = Header(None)):
+def run_search_status(run_id: str, x_user_username: Optional[str] = Header(None)):
     if not x_user_username or not x_user_username.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -539,7 +539,7 @@ def run_search_status(run_id: str, x_user_username: str | None = Header(None)):
     )
 
 @app.post("/api/search/stop/{run_id}")
-def run_search_stop(run_id: str, x_user_username: str | None = Header(None)):
+def run_search_stop(run_id: str, x_user_username: Optional[str] = Header(None)):
     if not x_user_username or not x_user_username.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -587,7 +587,7 @@ def run_search_stop(run_id: str, x_user_username: str | None = Header(None)):
         )
 
 @app.get("/api/search/latest", response_model=SearchResponse)
-def get_latest_search(x_user_username: str | None = Header(None)):
+def get_latest_search(x_user_username: Optional[str] = Header(None)):
     if not x_user_username or not x_user_username.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
