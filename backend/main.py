@@ -4,7 +4,17 @@ import logging
 import requests
 from collections import defaultdict
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, status, Header
+from fastapi import FastAPI, HTTPException, status, Header, BackgroundTasks
+import auto_db
+from facebook_automation import (
+    run_account_automation,
+    parse_cookies_input,
+    request_stop_automation,
+    reset_stop_automation,
+    get_automation_state,
+    add_state_log,
+    AUTOMATION_STATE
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -639,3 +649,180 @@ def get_latest_search(x_user_username: str | None = Header(None)):
         search_input=latest_run.get("search_input", ""),
         max_items=latest_run.get("max_items", 20)
     )
+
+
+# -----------------------------------------------------------------------------
+# Facebook Automation API Models & Endpoints
+# -----------------------------------------------------------------------------
+
+class FBAccountRequest(BaseModel):
+    account_id: str = Field(..., min_length=1, max_length=100)
+    platform: str = "facebook"
+    cookies: str | list[dict] | None = ""
+    proxy: str | None = ""
+    status: str = "active"
+
+class FBImportGroupsRequest(BaseModel):
+    urls: list[str] = Field(..., min_items=1)
+    platform: str = "facebook"
+    post_content: str | None = ""
+
+class FBImportPostsRequest(BaseModel):
+    urls: list[str] = Field(..., min_items=1)
+    comment_text: str | None = ""
+    platform: str = "facebook"
+
+class FBAutomationRunRequest(BaseModel):
+    task_type: str = Field("Group Join & Post")
+    selected_accounts: list[str] = Field(..., min_items=1)
+    group_cap: int = 0
+    is_headless: bool = True
+    post_content_single: str | None = ""
+    post_content_custom: dict[str, str] | None = None
+    post_url: str | None = ""
+    comment_text: str | None = ""
+
+
+@app.get("/api/facebook/accounts")
+def get_facebook_accounts():
+    accounts = auto_db.load_accounts()
+    fb_accs = [a for a in accounts if a.get("platform", "facebook").lower() == "facebook"]
+    return {"accounts": fb_accs}
+
+@app.post("/api/facebook/accounts")
+def add_or_update_facebook_account(payload: FBAccountRequest):
+    cookies_list = []
+    if isinstance(payload.cookies, str) and payload.cookies.strip():
+        cookies_list = parse_cookies_input(payload.cookies)
+    elif isinstance(payload.cookies, list):
+        cookies_list = payload.cookies
+
+    success = auto_db.add_account(
+        account_id=payload.account_id,
+        platform=payload.platform,
+        cookies=cookies_list,
+        proxy=payload.proxy or "",
+        status=payload.status
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to save account. Account ID is required.")
+    return {"status": "success", "account_id": payload.account_id}
+
+@app.delete("/api/facebook/accounts/{account_id}")
+def delete_facebook_account(account_id: str):
+    removed = auto_db.delete_account(account_id, platform="facebook")
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Account '{account_id}' not found.")
+    return {"status": "success", "message": f"Account '{account_id}' removed."}
+
+@app.get("/api/facebook/groups")
+def get_facebook_groups():
+    groups = auto_db.load_groups()
+    fb_groups = [g for g in groups if g.get("platform", "facebook").lower() == "facebook"]
+    return {"groups": fb_groups}
+
+@app.post("/api/facebook/groups/import")
+def import_facebook_groups(payload: FBImportGroupsRequest):
+    added = auto_db.import_groups(payload.urls, platform=payload.platform, post_content=payload.post_content or "")
+    return {"status": "success", "added_count": added}
+
+@app.get("/api/facebook/posts")
+def get_facebook_posts():
+    posts = auto_db.load_posts()
+    fb_posts = [p for p in posts if p.get("platform", "facebook").lower() == "facebook"]
+    return {"posts": fb_posts}
+
+@app.post("/api/facebook/posts/import")
+def import_facebook_posts(payload: FBImportPostsRequest):
+    added = auto_db.import_posts(payload.urls, comment_text=payload.comment_text or "", platform=payload.platform)
+    return {"status": "success", "added_count": added}
+
+def _execute_automation_batch(payload: FBAutomationRunRequest):
+    reset_stop_automation()
+    AUTOMATION_STATE["is_running"] = True
+    AUTOMATION_STATE["task_type"] = payload.task_type
+    AUTOMATION_STATE["progress"] = 5
+    AUTOMATION_STATE["status_text"] = f"Running ({payload.task_type})"
+    AUTOMATION_STATE["logs"] = []
+
+    add_state_log(f"Starting automation batch for {len(payload.selected_accounts)} account(s)...")
+
+    total_accs = len(payload.selected_accounts)
+    message_data = payload.post_content_custom if payload.post_content_custom else (payload.post_content_single or "")
+
+    for idx, acc_id in enumerate(payload.selected_accounts):
+        if AUTOMATION_STATE.get("stop_requested"):
+            add_state_log("Batch aborted by user stop request.")
+            break
+
+        AUTOMATION_STATE["current_account"] = acc_id
+        AUTOMATION_STATE["progress"] = int((idx / total_accs) * 90) + 5
+        AUTOMATION_STATE["status_text"] = f"Executing account '{acc_id}' ({idx + 1}/{total_accs})..."
+
+        try:
+            run_account_automation(
+                account_id=acc_id,
+                task_type=payload.task_type,
+                post_url=payload.post_url or "",
+                comment_text=payload.comment_text or "",
+                message=message_data,
+                group_cap=payload.group_cap,
+                is_headless=payload.is_headless,
+                acc_index=idx,
+                total_accs=total_accs
+            )
+        except Exception as e:
+            logger.error(f"Error executing automation for account {acc_id}: {e}")
+            add_state_log(f"Error executing account {acc_id}: {e}")
+
+    AUTOMATION_STATE["is_running"] = False
+    AUTOMATION_STATE["current_account"] = ""
+    if AUTOMATION_STATE.get("stop_requested"):
+        AUTOMATION_STATE["status_text"] = "Stopped"
+        AUTOMATION_STATE["progress"] = 0
+        add_state_log("Automation batch stopped.")
+    else:
+        AUTOMATION_STATE["status_text"] = "Completed"
+        AUTOMATION_STATE["progress"] = 100
+        add_state_log("Automation batch completed successfully.")
+
+@app.post("/api/facebook/automation/start")
+def start_facebook_automation(payload: FBAutomationRunRequest, background_tasks: BackgroundTasks):
+    if not payload.selected_accounts:
+        raise HTTPException(status_code=400, detail="Please select at least one account.")
+    
+    if AUTOMATION_STATE.get("is_running"):
+        raise HTTPException(status_code=400, detail="Automation is already running.")
+
+    background_tasks.add_task(_execute_automation_batch, payload)
+    return {
+        "status": "started",
+        "task_type": payload.task_type,
+        "selected_accounts": payload.selected_accounts,
+        "message": "Automation runner launched in background."
+    }
+
+@app.get("/api/facebook/automation/status")
+def get_facebook_automation_status():
+    state = get_automation_state()
+    return {
+        "state": state,
+        "groups": auto_db.load_groups(),
+        "posts": auto_db.load_posts(),
+        "logs": auto_db.load_logs()
+    }
+
+@app.post("/api/facebook/automation/stop")
+def stop_facebook_automation():
+    request_stop_automation()
+    return {"status": "success", "message": "Stop signal sent."}
+
+@app.get("/api/facebook/logs")
+def get_facebook_logs():
+    logs = auto_db.load_logs()
+    return {"logs": logs}
+
+@app.delete("/api/facebook/logs")
+def clear_facebook_logs():
+    auto_db.clear_logs()
+    return {"status": "success", "message": "Activity logs cleared."}

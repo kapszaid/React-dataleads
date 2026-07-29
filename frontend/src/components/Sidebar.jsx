@@ -5,7 +5,8 @@ function Sidebar({ activeTab, setActiveTab, onLogout }) {
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
-    'Facebook Groups Extractor (Apify)'
+    'Facebook Groups Extractor (Apify)',
+    'Facebook Auto Post Engine'
   ];
 
   return (

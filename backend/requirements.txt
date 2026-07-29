@@ -6,3 +6,5 @@ httpx
 requests
 apify-client
 pymongo
+playwright
+playwright-stealth
