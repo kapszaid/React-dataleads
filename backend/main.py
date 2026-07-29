@@ -6,6 +6,7 @@ import logging
 import requests
 from collections import defaultdict
 from datetime import datetime
+from typing import List, Dict, Optional, Tuple, Union, Any
 from fastapi import FastAPI, HTTPException, status, Header, BackgroundTasks
 import auto_db
 from facebook_automation import (
@@ -105,7 +106,7 @@ class EnhanceRequest(BaseModel):
 
 class EnhanceResponse(BaseModel):
     keyword: str
-    suggestions: list[str]
+    suggestions: List[str]
 
 class SearchRequest(BaseModel):
     searchType: str = Field(..., min_length=1)
@@ -113,16 +114,16 @@ class SearchRequest(BaseModel):
     maxItems: int = Field(20, ge=1, le=500)
 
 class GroupItem(BaseModel):
-    query: str | None = ""
-    id: str | None = ""
-    name: str | None = ""
-    url: str | None = ""
-    visibility: str | None = ""
-    members: str | None = ""
-    postFrequency: str | None = ""
-    type: str | None = ""
-    joinState: str | None = ""
-    profilePicture: str | None = ""
+    query: Optional[str] = ""
+    id: Optional[str] = ""
+    name: Optional[str] = ""
+    url: Optional[str] = ""
+    visibility: Optional[str] = ""
+    members: Optional[str] = ""
+    postFrequency: Optional[str] = ""
+    type: Optional[str] = ""
+    joinState: Optional[str] = ""
+    profilePicture: Optional[str] = ""
 
 class SearchStartResponse(BaseModel):
     run_id: str
@@ -131,14 +132,14 @@ class SearchStartResponse(BaseModel):
 class SearchResponse(BaseModel):
     status: str
     total_groups: int
-    groups: list[GroupItem]
+    groups: List[GroupItem]
     raw_output: dict
-    run_id: str | None = ""
-    search_type: str | None = ""
-    search_input: str | None = ""
-    max_items: int | None = 20
+    run_id: Optional[str] = ""
+    search_type: Optional[str] = ""
+    search_input: Optional[str] = ""
+    max_items: Optional[int] = 20
 
-def parse_entries(raw_text: str) -> list[str]:
+def parse_entries(raw_text: str) -> List[str]:
     values = []
     seen = set()
     for part in raw_text.replace("\r", "\n").split("\n"):
@@ -153,7 +154,7 @@ def parse_entries(raw_text: str) -> list[str]:
             values.append(value)
     return values
 
-def run_starturls_groups_actor(actor_id: str, start_urls: list[str], max_items: int) -> tuple[list[dict], dict]:
+def run_starturls_groups_actor(actor_id: str, start_urls: List[str], max_items: int) -> Tuple[List[Dict], Dict]:
     if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
         raise RuntimeError("Apify API token not configured.")
     client = ApifyClient(APIFY_API_TOKEN)
@@ -169,7 +170,7 @@ def run_starturls_groups_actor(actor_id: str, start_urls: list[str], max_items: 
     items = list(client.dataset(dataset_id).iterate_items()) if dataset_id else []
     return items, run_input
 
-def run_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[list[dict], dict]:
+def run_easyapi_groups_actor(search_query: str, max_items: int) -> Tuple[List[Dict], Dict]:
     if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
         raise RuntimeError("Apify API token not configured.")
     client = ApifyClient(APIFY_API_TOKEN)
@@ -185,7 +186,7 @@ def run_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[list[di
     items = list(client.dataset(dataset_id).iterate_items()) if dataset_id else []
     return items, run_input
 
-def start_starturls_groups_actor(actor_id: str, start_urls: list[str], max_items: int) -> tuple[str, dict]:
+def start_starturls_groups_actor(actor_id: str, start_urls: List[str], max_items: int) -> Tuple[str, Dict]:
     if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
         raise RuntimeError("Apify API token not configured.")
     client = ApifyClient(APIFY_API_TOKEN)
@@ -199,7 +200,7 @@ def start_starturls_groups_actor(actor_id: str, start_urls: list[str], max_items
         raise RuntimeError("Failed to obtain run ID from Apify.")
     return run_id, run_input
 
-def start_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[str, dict]:
+def start_easyapi_groups_actor(search_query: str, max_items: int) -> Tuple[str, Dict]:
     if not APIFY_API_TOKEN or APIFY_API_TOKEN.startswith("your_"):
         raise RuntimeError("Apify API token not configured.")
     client = ApifyClient(APIFY_API_TOKEN)
@@ -213,7 +214,7 @@ def start_easyapi_groups_actor(search_query: str, max_items: int) -> tuple[str, 
         raise RuntimeError("Failed to obtain run ID from Apify.")
     return run_id, run_input
 
-def build_grouped_raw_output(items: list[dict], run_input: dict) -> dict:
+def build_grouped_raw_output(items: List[Dict], run_input: Dict) -> Dict:
     grouped = defaultdict(list)
     for item in items:
         if not isinstance(item, dict):
@@ -238,14 +239,14 @@ def build_grouped_raw_output(items: list[dict], run_input: dict) -> dict:
         "results": results
     }
 
-def build_easyapi_raw_output(items: list[dict], run_input: dict) -> dict:
+def build_easyapi_raw_output(items: List[Dict], run_input: Dict) -> Dict:
     return {
         "config": run_input,
         "total_groups": len(items),
         "items": items
     }
 
-def build_groups_list(items: list[dict]) -> list[dict]:
+def build_groups_list(items: List[Dict]) -> List[Dict]:
     groups = []
     for item in items:
         if not isinstance(item, dict):
@@ -674,29 +675,29 @@ def get_latest_search(x_user_username: str | None = Header(None)):
 class FBAccountRequest(BaseModel):
     account_id: str = Field(..., min_length=1, max_length=100)
     platform: str = "facebook"
-    cookies: str | list[dict] | None = ""
-    proxy: str | None = ""
+    cookies: Optional[Union[str, List[Dict]]] = ""
+    proxy: Optional[str] = ""
     status: str = "active"
 
 class FBImportGroupsRequest(BaseModel):
-    urls: list[str] = Field(..., min_items=1)
+    urls: List[str] = Field(..., min_items=1)
     platform: str = "facebook"
-    post_content: str | None = ""
+    post_content: Optional[str] = ""
 
 class FBImportPostsRequest(BaseModel):
-    urls: list[str] = Field(..., min_items=1)
-    comment_text: str | None = ""
+    urls: List[str] = Field(..., min_items=1)
+    comment_text: Optional[str] = ""
     platform: str = "facebook"
 
 class FBAutomationRunRequest(BaseModel):
     task_type: str = Field("Group Join & Post")
-    selected_accounts: list[str] = Field(..., min_items=1)
+    selected_accounts: List[str] = Field(..., min_items=1)
     group_cap: int = 0
     is_headless: bool = True
-    post_content_single: str | None = ""
-    post_content_custom: dict[str, str] | None = None
-    post_url: str | None = ""
-    comment_text: str | None = ""
+    post_content_single: Optional[str] = ""
+    post_content_custom: Optional[Dict[str, str]] = None
+    post_url: Optional[str] = ""
+    comment_text: Optional[str] = ""
 
 
 @app.get("/api/facebook/accounts")
