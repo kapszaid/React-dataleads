@@ -1,9 +1,4 @@
-"""
-facebook_automation.py
-----------------------
-Playwright Facebook Automation Engine for Group Joining, Posting, and Post Engagement.
-Integrated directly into FastAPI Backend with background execution, live state tracking, and stop controls.
-"""
+from __future__ import annotations
 
 import asyncio
 import concurrent.futures

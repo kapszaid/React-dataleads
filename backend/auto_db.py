@@ -1,15 +1,10 @@
-"""
-auto_db.py
-----------
-Database management module for social automation app.
-Provides persistent state storage for accounts, group tasks, post engagement queue, activity logs, and browser sessions.
-Fully backed by MongoDB Atlas with 0 disk storage bloat.
-"""
+from __future__ import annotations
 
 import json
 import os
 import threading
 from datetime import datetime
+from typing import List, Dict, Optional, Tuple, Union
 from pathlib import Path
 from dotenv import load_dotenv
 
