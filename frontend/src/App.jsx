@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import SearchForm from './components/SearchForm';
 import FacebookAutoPost from './components/FacebookAutoPost';
+import TelegramAutoPost from './components/TelegramAutoPost';
 import Login from './components/Login';
 import './App.css';
 
@@ -32,7 +33,10 @@ function App() {
         <div style={{ display: activeTab === 'Facebook Auto Post Engine' ? 'block' : 'none' }}>
           <FacebookAutoPost />
         </div>
-        {activeTab !== 'Facebook Groups Extractor (Apify)' && activeTab !== 'Facebook Auto Post Engine' && (
+        <div style={{ display: activeTab === 'Telegram Auto Post Engine' ? 'block' : 'none' }}>
+          <TelegramAutoPost />
+        </div>
+        {activeTab !== 'Facebook Groups Extractor (Apify)' && activeTab !== 'Facebook Auto Post Engine' && activeTab !== 'Telegram Auto Post Engine' && (
           <div className="placeholder-content">
             <h2>{activeTab}</h2>
             <p>Content for {activeTab} will go here.</p>

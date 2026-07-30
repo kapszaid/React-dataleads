@@ -23,7 +23,7 @@ const formatProxyDisplay = (proxyStr) => {
   }
 };
 
-function FacebookAutoPost() {
+function TelegramAutoPost() {
   const [activeTab, setActiveTab] = useState('runner');
 
   // Runner state
@@ -34,9 +34,7 @@ function FacebookAutoPost() {
   const [msgMode, setMsgMode] = useState('single');
   const [singleMsg, setSingleMsg] = useState('');
   const [customMsgs, setCustomMsgs] = useState({});
-  const [postUrl, setPostUrl] = useState('');
-  const [commentText, setCommentText] = useState('');
-  const [isHeadless, setIsHeadless] = useState(true);
+  const [runDmCheck, setRunDmCheck] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runProgress, setRunProgress] = useState(0);
   const [runStatusText, setRunStatusText] = useState('Idle');
@@ -44,20 +42,18 @@ function FacebookAutoPost() {
 
   // Queue state
   const [groupsQueue, setGroupsQueue] = useState([]);
-  const [postsQueue, setPostsQueue] = useState([]);
 
   // Account Manager state
   const [accFormId, setAccFormId] = useState('');
+  const [accFormSession, setAccFormSession] = useState('');
   const [accFormProxy, setAccFormProxy] = useState('');
-  const [accFormCookies, setAccFormCookies] = useState('');
+  const [accFormApiId, setAccFormApiId] = useState('39197157');
+  const [accFormApiHash, setAccFormApiHash] = useState('5de576dd64aae68a18f5114761e539d7');
   const [accFormStatus, setAccFormStatus] = useState('active');
 
   // Import Queue state
-  const [importTab, setImportTab] = useState('groups');
   const [importGroupUrls, setImportGroupUrls] = useState('');
   const [importGroupPostContent, setImportGroupPostContent] = useState('');
-  const [importPostUrls, setImportPostUrls] = useState('');
-  const [importPostCommentText, setImportPostCommentText] = useState('');
 
   // Activity Logs state
   const [activityLogs, setActivityLogs] = useState([]);
@@ -74,25 +70,24 @@ function FacebookAutoPost() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/accounts`);
+      const res = await fetch(`${API_BASE_URL}/api/telegram/accounts`);
       if (!res.ok) return;
       const data = await res.json();
       const list = data.accounts || [];
       setAccounts(list);
 
-      if (selectedAccounts.length === 0) {
+      if (selectedAccounts.length === 0 && list.length > 0) {
         const activeIds = list.filter(a => a.status === 'active').map(a => a.account_id);
         setSelectedAccounts(activeIds.length > 0 ? activeIds : list.map(a => a.account_id));
       }
     } catch (err) {
-      console.error('Failed to fetch accounts:', err);
+      console.error('Failed to fetch Telegram accounts:', err);
     }
   };
 
-  // Poll automation status continuously (supports tab close/reopen & real-time updates)
   const pollAutomationStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/automation/status`);
+      const res = await fetch(`${API_BASE_URL}/api/telegram/automation/status`);
       if (!res.ok) return;
       const data = await res.json();
       const st = data.state || {};
@@ -104,10 +99,9 @@ function FacebookAutoPost() {
         setLiveLogs(st.logs);
       }
       if (data.groups) setGroupsQueue(data.groups);
-      if (data.posts) setPostsQueue(data.posts);
       if (data.logs) setActivityLogs(data.logs);
     } catch (err) {
-      console.error('Status poll error:', err);
+      console.error('Telegram status poll error:', err);
     }
   };
 
@@ -116,7 +110,6 @@ function FacebookAutoPost() {
     pollAutomationStatus();
   }, []);
 
-  // Poll status ONLY when automation is actively running
   useEffect(() => {
     if (!isRunning) return;
 
@@ -140,27 +133,25 @@ function FacebookAutoPost() {
 
   const handleStartAutomation = async () => {
     if (selectedAccounts.length === 0) {
-      showNotification('Please select at least one account.', 'error');
+      showNotification('Please select at least one Telegram account.', 'error');
       return;
     }
 
     setIsRunning(true);
     setRunProgress(5);
-    setRunStatusText('Launching automation runner...');
+    setRunStatusText('Launching Telegram automation runner...');
 
     const payload = {
       task_type: taskType,
       selected_accounts: selectedAccounts,
       group_cap: parseInt(groupCap, 10) || 0,
-      is_headless: isHeadless,
       post_content_single: singleMsg,
       post_content_custom: msgMode === 'custom' ? customMsgs : null,
-      post_url: postUrl,
-      comment_text: commentText
+      run_dm_check: runDmCheck || taskType.includes('DM Check')
     };
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/automation/start`, {
+      const res = await fetch(`${API_BASE_URL}/api/telegram/automation/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -168,25 +159,25 @@ function FacebookAutoPost() {
 
       if (!res.ok) {
         const errData = await res.json();
-        throw new Error(errData.detail || 'Failed to start automation');
+        throw new Error(errData.detail || 'Failed to start Telegram automation');
       }
 
-      showNotification('Automation runner started in background.', 'success');
+      showNotification('Telegram automation runner started in background.', 'success');
       pollAutomationStatus();
     } catch (err) {
       setIsRunning(false);
-      setRunStatusText('Error starting automation');
+      setRunStatusText('Error starting Telegram automation');
       showNotification(err.message, 'error');
     }
   };
 
   const handleStopAutomation = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/automation/stop`, {
+      const res = await fetch(`${API_BASE_URL}/api/telegram/automation/stop`, {
         method: 'POST'
       });
       if (res.ok) {
-        showNotification('STOP signal sent. Terminating browser sessions...', 'info');
+        showNotification('STOP signal sent for Telegram automation.', 'info');
         setRunStatusText('Stopping...');
         pollAutomationStatus();
       }
@@ -197,30 +188,32 @@ function FacebookAutoPost() {
 
   const handleSaveAccount = async (e) => {
     e.preventDefault();
-    if (!accFormId.trim()) {
-      showNotification('Account ID is required.', 'error');
+    if (!accFormId.trim() || !accFormSession.trim()) {
+      showNotification('Account ID and Session String are required.', 'error');
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/accounts`, {
+      const res = await fetch(`${API_BASE_URL}/api/telegram/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           account_id: accFormId.trim(),
-          platform: 'facebook',
-          cookies: accFormCookies,
-          proxy: accFormProxy,
+          platform: 'telegram',
+          session_string: accFormSession.trim(),
+          api_id: parseInt(accFormApiId, 10) || 39197157,
+          api_hash: accFormApiHash.trim() || '5de576dd64aae68a18f5114761e539d7',
+          proxy: accFormProxy.trim(),
           status: accFormStatus
         })
       });
 
       if (!res.ok) throw new Error('Failed to save account');
 
-      showNotification(`Account '${accFormId}' saved successfully.`, 'success');
+      showNotification(`Telegram account '${accFormId}' saved successfully.`, 'success');
       setAccFormId('');
+      setAccFormSession('');
       setAccFormProxy('');
-      setAccFormCookies('');
       fetchAccounts();
     } catch (err) {
       showNotification(err.message, 'error');
@@ -228,9 +221,9 @@ function FacebookAutoPost() {
   };
 
   const handleDeleteAccount = async (accId) => {
-    if (!window.confirm(`Delete account '${accId}'?`)) return;
+    if (!window.confirm(`Delete Telegram account '${accId}'?`)) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/accounts/${accId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/telegram/accounts/${accId}`, {
         method: 'DELETE'
       });
       if (!res.ok) throw new Error('Failed to delete account');
@@ -245,52 +238,25 @@ function FacebookAutoPost() {
     e.preventDefault();
     const urls = importGroupUrls.replace(/\r/g, '').split('\n').flatMap(line => line.split(',')).map(u => u.trim()).filter(Boolean);
     if (urls.length === 0) {
-      showNotification('Please enter at least one valid Group URL.', 'error');
+      showNotification('Please enter at least one valid Telegram group link.', 'error');
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/groups/import`, {
+      const res = await fetch(`${API_BASE_URL}/api/telegram/groups/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           urls,
-          platform: 'facebook',
+          platform: 'telegram',
           post_content: importGroupPostContent
         })
       });
       if (!res.ok) throw new Error('Import failed');
       const data = await res.json();
-      showNotification(`Imported ${data.added_count} group task(s).`, 'success');
+      showNotification(`Imported ${data.added_count} Telegram group task(s).`, 'success');
       setImportGroupUrls('');
-      pollAutomationStatus();
-    } catch (err) {
-      showNotification(err.message, 'error');
-    }
-  };
-
-  const handleImportPosts = async (e) => {
-    e.preventDefault();
-    const urls = importPostUrls.replace(/\r/g, '').split('\n').flatMap(line => line.split(',')).map(u => u.trim()).filter(Boolean);
-    if (urls.length === 0) {
-      showNotification('Please enter at least one valid Post URL.', 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/facebook/posts/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          urls,
-          comment_text: importPostCommentText,
-          platform: 'facebook'
-        })
-      });
-      if (!res.ok) throw new Error('Import failed');
-      const data = await res.json();
-      showNotification(`Imported ${data.added_count} post target(s).`, 'success');
-      setImportPostUrls('');
+      setImportGroupPostContent('');
       pollAutomationStatus();
     } catch (err) {
       showNotification(err.message, 'error');
@@ -300,7 +266,7 @@ function FacebookAutoPost() {
   const handleClearLogs = async () => {
     if (!window.confirm('Clear all activity logs?')) return;
     try {
-      await fetch(`${API_BASE_URL}/api/facebook/logs`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/api/telegram/logs`, { method: 'DELETE' });
       showNotification('Logs cleared.', 'info');
       pollAutomationStatus();
     } catch (err) {
@@ -315,7 +281,6 @@ function FacebookAutoPost() {
       (log.action && log.action.toLowerCase().includes(logSearch.toLowerCase()));
 
     const matchesStatus = logStatusFilter === 'all' || log.status === logStatusFilter;
-
     return matchesSearch && matchesStatus;
   });
 
@@ -324,9 +289,9 @@ function FacebookAutoPost() {
       {/* Header */}
       <div className="fb-auto-header">
         <div className="fb-auto-title-group">
-          <h1>Facebook Automation</h1>
+          <h1>Telegram Automation</h1>
           <p className="fb-auto-subtitle">
-            Group join, posting, notification muting, and post engagement runner.
+            Group auto-join, message publishing, notification muting, and direct message lead runner.
           </p>
         </div>
       </div>
@@ -356,7 +321,7 @@ function FacebookAutoPost() {
           className={`fb-tab-btn ${activeTab === 'import' ? 'active' : ''}`}
           onClick={() => setActiveTab('import')}
         >
-          Import Queue ({groupsQueue.length} Groups / {postsQueue.length} Posts)
+          Import Queue ({groupsQueue.length} Groups)
         </button>
         <button
           className={`fb-tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
@@ -373,34 +338,8 @@ function FacebookAutoPost() {
             <h3 className="fb-card-title">Task Setup</h3>
 
             <div className="fb-form-group">
-              <label>Task Type</label>
-              <div className="fb-radio-group">
-                <label className="fb-radio-label">
-                  <input
-                    type="radio"
-                    name="taskType"
-                    value="Group Join & Post"
-                    checked={taskType === 'Group Join & Post'}
-                    onChange={() => setTaskType('Group Join & Post')}
-                  />
-                  Group Join & Post
-                </label>
-                <label className="fb-radio-label">
-                  <input
-                    type="radio"
-                    name="taskType"
-                    value="Post Engagement (Like & Comment)"
-                    checked={taskType === 'Post Engagement (Like & Comment)'}
-                    onChange={() => setTaskType('Post Engagement (Like & Comment)')}
-                  />
-                  Post Engagement (Like & Comment)
-                </label>
-              </div>
-            </div>
-
-            <div className="fb-form-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label style={{ margin: 0 }}>Accounts ({selectedAccounts.length}/{accounts.length})</label>
+                <label style={{ margin: 0 }}>Telegram Accounts ({selectedAccounts.length}/{accounts.length})</label>
                 <div>
                   <button type="button" className="fb-btn-sm" onClick={selectAllAccounts} style={{ marginRight: 4 }}>Select All</button>
                   <button type="button" className="fb-btn-sm" onClick={deselectAllAccounts}>Clear</button>
@@ -409,7 +348,7 @@ function FacebookAutoPost() {
 
               {accounts.length === 0 ? (
                 <div style={{ fontSize: 13, color: '#64748b', padding: 8 }}>
-                  No accounts found. Add accounts in the Account Manager tab.
+                  No Telegram accounts found. Add accounts in the Account Manager tab.
                 </div>
               ) : (
                 <div className="fb-account-checklist">
@@ -432,7 +371,7 @@ function FacebookAutoPost() {
 
             <div className="fb-form-group">
               <label>
-                {taskType === 'Group Join & Post' ? 'Max Groups Per Account' : 'Max Posts Per Account'} (0 = Process ALL)
+                Max Groups Per Account (0 = Process ALL)
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <input
@@ -455,52 +394,53 @@ function FacebookAutoPost() {
               </div>
             </div>
 
-            {taskType === 'Group Join & Post' ? (
-              <div className="fb-form-group">
-                <label>Message Mode</label>
-                <select className="fb-select" value={msgMode} onChange={(e) => setMsgMode(e.target.value)}>
-                  <option value="single">Single Message (All Accounts)</option>
-                  <option value="custom">Per-Account Custom Messages</option>
-                </select>
+            <div className="fb-form-group">
+              <label>Message Mode</label>
+              <select className="fb-select" value={msgMode} onChange={(e) => setMsgMode(e.target.value)}>
+                <option value="single">Single Message (All Accounts)</option>
+                <option value="custom">Per-Account Custom Messages</option>
+              </select>
 
-                {msgMode === 'single' ? (
-                  <div style={{ marginTop: 8 }}>
-                    <textarea
-                      className="fb-textarea"
-                      placeholder="Enter post text to publish in groups..."
-                      value={singleMsg}
-                      onChange={(e) => setSingleMsg(e.target.value)}
-                    />
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {selectedAccounts.map(accId => (
-                      <div key={accId}>
-                        <span style={{ fontSize: 12, fontWeight: 500 }}>Message for {accId}:</span>
-                        <textarea
-                          className="fb-textarea"
-                          style={{ minHeight: 50 }}
-                          placeholder={`Message for ${accId}...`}
-                          value={customMsgs[accId] || ''}
-                          onChange={(e) => setCustomMsgs({ ...customMsgs, [accId]: e.target.value })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="fb-form-group">
-                <label>Comment Text</label>
-                <input
-                  type="text"
-                  className="fb-input"
-                  placeholder="Enter comment text for engagement targets..."
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                />
-              </div>
-            )}
+              {msgMode === 'single' ? (
+                <div style={{ marginTop: 8 }}>
+                  <textarea
+                    className="fb-textarea"
+                    placeholder="Enter post text to publish in Telegram groups..."
+                    value={singleMsg}
+                    onChange={(e) => setSingleMsg(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {selectedAccounts.map(accId => (
+                    <div key={accId}>
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>Message for {accId}:</span>
+                      <textarea
+                        className="fb-textarea"
+                        style={{ minHeight: 50 }}
+                        placeholder={`Message for ${accId}...`}
+                        value={customMsgs[accId] || ''}
+                        onChange={(e) => setCustomMsgs({ ...customMsgs, [accId]: e.target.value })}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="fb-form-group">
+              <label className="tg-switch-label">
+                <div className="tg-switch">
+                  <input
+                    type="checkbox"
+                    checked={runDmCheck}
+                    onChange={(e) => setRunDmCheck(e.target.checked)}
+                  />
+                  <span className="tg-slider"></span>
+                </div>
+                <span>Check Direct Messages & Leads (DM Check)</span>
+              </label>
+            </div>
 
             <div style={{ display: 'flex', gap: 12 }}>
               <button
@@ -547,7 +487,7 @@ function FacebookAutoPost() {
 
             <div style={{ marginTop: 16 }}>
               <h4 style={{ margin: '0 0 8px 0', fontSize: 14, fontWeight: 600 }}>
-                {taskType === 'Group Join & Post' ? 'Groups Queue' : 'Post Queue'}
+                Telegram Groups Queue
               </h4>
 
               <div className="fb-table-wrapper" style={{ maxHeight: 260 }}>
@@ -555,16 +495,21 @@ function FacebookAutoPost() {
                   <thead>
                     <tr>
                       <th>Target Link</th>
-                      <th>Content / Comment</th>
+                      <th>Post Content</th>
+                      <th>Attempted Accounts</th>
+                      <th>Message Link</th>
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {taskType === 'Group Join & Post' ? (
-                      groupsQueue.length === 0 ? (
-                        <tr><td colSpan="3" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>
-                      ) : (
-                        groupsQueue.slice(0, 15).map((g, idx) => (
+                    {groupsQueue.length === 0 ? (
+                      <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>
+                    ) : (
+                      groupsQueue.slice(0, 50).map((g, idx) => {
+                        const attemptedStr = (g.attempted_by_accounts && g.attempted_by_accounts.length > 0)
+                          ? g.attempted_by_accounts.join(', ')
+                          : (g.attempted_post_by ? g.attempted_post_by.join(', ') : '—');
+                        return (
                           <tr key={idx}>
                             <td>
                               <a href={g.group_url} target="_blank" rel="noreferrer" className="fb-link">
@@ -572,30 +517,20 @@ function FacebookAutoPost() {
                               </a>
                             </td>
                             <td>{g.post_content ? (g.post_content.length > 30 ? g.post_content.slice(0, 27) + '...' : g.post_content) : '—'}</td>
+                            <td>{attemptedStr}</td>
+                            <td>
+                              {g.message_link ? (
+                                <a href={g.message_link} target="_blank" rel="noreferrer" className="fb-link">
+                                  Open Message 🔗
+                                </a>
+                              ) : '—'}
+                            </td>
                             <td>
                               <span className={`fb-badge ${g.status}`}>{g.status}</span>
                             </td>
                           </tr>
-                        ))
-                      )
-                    ) : (
-                      postsQueue.length === 0 ? (
-                        <tr><td colSpan="3" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>
-                      ) : (
-                        postsQueue.slice(0, 15).map((p, idx) => (
-                          <tr key={idx}>
-                            <td>
-                              <a href={p.post_url} target="_blank" rel="noreferrer" className="fb-link">
-                                {p.post_url.length > 40 ? p.post_url.slice(0, 37) + '...' : p.post_url}
-                              </a>
-                            </td>
-                            <td>{p.comment_text || '—'}</td>
-                            <td>
-                              <span className={`fb-badge ${p.status}`}>{p.status}</span>
-                            </td>
-                          </tr>
-                        ))
-                      )
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -629,20 +564,18 @@ function FacebookAutoPost() {
                   <tr>
                     <th>Account ID</th>
                     <th>Proxy</th>
-                    <th>Cookies</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No accounts.</td></tr>
+                    <tr><td colSpan="4" style={{ textAlign: 'center', color: '#94a3b8' }}>No accounts.</td></tr>
                   ) : (
                     accounts.map(acc => (
                       <tr key={acc.account_id}>
                         <td style={{ fontWeight: 600 }}>{acc.account_id}</td>
                         <td>{formatProxyDisplay(acc.proxy)}</td>
-                        <td>{acc.cookies ? `${acc.cookies.length} cookies` : 'None'}</td>
                         <td>
                           <span className={`fb-badge ${acc.status}`}>{acc.status}</span>
                         </td>
@@ -670,9 +603,20 @@ function FacebookAutoPost() {
                 <input
                   type="text"
                   className="fb-input"
-                  placeholder="e.g. fb_account_1"
+                  placeholder="e.g. acc_tg_001"
                   value={accFormId}
                   onChange={(e) => setAccFormId(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="fb-form-group">
+                <label>Telethon Session String *</label>
+                <textarea
+                  className="fb-textarea"
+                  placeholder="Paste Telethon StringSession string here..."
+                  value={accFormSession}
+                  onChange={(e) => setAccFormSession(e.target.value)}
                   required
                 />
               </div>
@@ -682,19 +626,9 @@ function FacebookAutoPost() {
                 <input
                   type="text"
                   className="fb-input"
-                  placeholder="IP:PORT:USER:PASS or http://user:pass@ip:port"
+                  placeholder="IP:PORT:USER:PASS or SOCKS5 string"
                   value={accFormProxy}
                   onChange={(e) => setAccFormProxy(e.target.value)}
-                />
-              </div>
-
-              <div className="fb-form-group">
-                <label>Cookies (JSON or string)</label>
-                <textarea
-                  className="fb-textarea"
-                  placeholder='[{"name": "c_user", "value": "..."}]'
-                  value={accFormCookies}
-                  onChange={(e) => setAccFormCookies(e.target.value)}
                 />
               </div>
 
@@ -721,58 +655,80 @@ function FacebookAutoPost() {
       {/* TAB 3: IMPORT QUEUE */}
       {activeTab === 'import' && (
         <div className="fb-card">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button
-              className={`fb-tab-btn ${importTab === 'groups' ? 'active' : ''}`}
-              onClick={() => setImportTab('groups')}
-            >
+          <h3 className="fb-card-title">Import Group Tasks</h3>
+          <form onSubmit={handleImportGroups}>
+            <div className="fb-form-group">
+              <label>Telegram Group URLs (One per line or comma-separated) *</label>
+              <textarea
+                className="fb-textarea"
+                style={{ minHeight: 140 }}
+                placeholder="https://t.me/CryptoPulse_Chat1&#10;https://t.me/+join_hash"
+                value={importGroupUrls}
+                onChange={(e) => setImportGroupUrls(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="fb-form-group">
+              <label>Default Post Content (Optional)</label>
+              <textarea
+                className="fb-textarea"
+                style={{ minHeight: 80 }}
+                placeholder="Content to publish in these groups..."
+                value={importGroupPostContent}
+                onChange={(e) => setImportGroupPostContent(e.target.value)}
+              />
+            </div>
+
+            <button type="submit" className="fb-btn-primary" style={{ width: 'auto' }}>
               Import Group Tasks
             </button>
-            <button
-              className={`fb-tab-btn ${importTab === 'posts' ? 'active' : ''}`}
-              onClick={() => setImportTab('posts')}
-            >
-              Import Post Engagement Targets
-            </button>
+          </form>
+
+          <div style={{ marginTop: 24 }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: 16, fontWeight: 600 }}>Group Tasks Queue Summary</h4>
+            <div className="fb-table-wrapper" style={{ maxHeight: 350 }}>
+              <table className="fb-table">
+                <thead>
+                  <tr>
+                    <th>Group URL</th>
+                    <th>Post Content</th>
+                    <th>Attempted Accounts</th>
+                    <th>Message Link</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupsQueue.length === 0 ? (
+                    <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No groups in queue.</td></tr>
+                  ) : (
+                    groupsQueue.map((g, idx) => {
+                      const attemptedStr = (g.attempted_by_accounts && g.attempted_by_accounts.length > 0)
+                        ? g.attempted_by_accounts.join(', ')
+                        : (g.attempted_post_by ? g.attempted_post_by.join(', ') : '—');
+                      return (
+                        <tr key={idx}>
+                          <td>
+                            <a href={g.group_url} target="_blank" rel="noreferrer" className="fb-link">{g.group_url}</a>
+                          </td>
+                          <td>{g.post_content || '—'}</td>
+                          <td>{attemptedStr}</td>
+                          <td>
+                            {g.message_link ? (
+                              <a href={g.message_link} target="_blank" rel="noreferrer" className="fb-link">Open Message 🔗</a>
+                            ) : '—'}
+                          </td>
+                          <td>
+                            <span className={`fb-badge ${g.status}`}>{g.status}</span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-
-          {importTab === 'groups' ? (
-            <form onSubmit={handleImportGroups}>
-              <div className="fb-form-group">
-                <label>Group URLs (One per line or comma-separated) *</label>
-                <textarea
-                  className="fb-textarea"
-                  style={{ minHeight: 140 }}
-                  placeholder="https://www.facebook.com/groups/..."
-                  value={importGroupUrls}
-                  onChange={(e) => setImportGroupUrls(e.target.value)}
-                  required
-                />
-              </div>
-
-              <button type="submit" className="fb-btn-primary" style={{ width: 'auto' }}>
-                Import Group Tasks
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleImportPosts}>
-              <div className="fb-form-group">
-                <label>Post URLs (One per line or comma-separated) *</label>
-                <textarea
-                  className="fb-textarea"
-                  style={{ minHeight: 140 }}
-                  placeholder="https://www.facebook.com/..."
-                  value={importPostUrls}
-                  onChange={(e) => setImportPostUrls(e.target.value)}
-                  required
-                />
-              </div>
-
-              <button type="submit" className="fb-btn-primary" style={{ width: 'auto' }}>
-                Import Post Targets
-              </button>
-            </form>
-          )}
         </div>
       )}
 
@@ -800,10 +756,9 @@ function FacebookAutoPost() {
               style={{ flex: 1 }}
             >
               <option value="all">All Statuses</option>
-              <option value="success">Success</option>
-              <option value="failed">Failed</option>
-              <option value="submitted">Submitted</option>
+              <option value="posted">Posted</option>
               <option value="joined">Joined</option>
+              <option value="failed">Failed</option>
             </select>
           </div>
 
@@ -849,4 +804,4 @@ function FacebookAutoPost() {
   );
 }
 
-export default FacebookAutoPost;
+export default TelegramAutoPost;

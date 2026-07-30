@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './Login.css';
 
-const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const rawUrl = import.meta.env.VITE_API_URL || 'https://api.launchex.net';
 const API_BASE_URL = rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
 
 function Login({ onLoginSuccess }) {

@@ -18,6 +18,15 @@ from facebook_automation import (
     add_state_log,
     AUTOMATION_STATE
 )
+from telegram_automation import (
+    run_account_telegram_automation,
+    request_tg_stop_automation,
+    reset_tg_stop_automation,
+    get_tg_automation_state,
+    add_tg_state_log,
+    execute_telegram_automation_batch,
+    TG_AUTOMATION_STATE
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -71,6 +80,7 @@ origins = [
     "http://localhost:3000",
     "https://dataleads.launchex.net",
     "https://dataleads.pages.dev",
+    "https://api.launchex.net",
 ]
 
 app.add_middleware(
@@ -841,6 +851,143 @@ def get_facebook_logs():
 
 @app.delete("/api/facebook/logs")
 def clear_facebook_logs():
+    auto_db.clear_logs()
+    return {"status": "success"}
+
+
+# -----------------------------------------------------------------------------
+# Telegram Automation API Models & Endpoints
+# -----------------------------------------------------------------------------
+
+class TGAccountRequest(BaseModel):
+    account_id: str = Field(..., min_length=1, max_length=100)
+    platform: str = "telegram"
+    session_string: str = Field(..., min_length=1)
+    api_id: Optional[int] = 39197157
+    api_hash: Optional[str] = "5de576dd64aae68a18f5114761e539d7"
+    proxy: Optional[str] = ""
+    status: str = "active"
+
+class TGImportGroupsRequest(BaseModel):
+    urls: List[str] = Field(..., min_items=1)
+    platform: str = "telegram"
+    post_content: Optional[str] = ""
+
+class TGImportPostsRequest(BaseModel):
+    urls: List[str] = Field(..., min_items=1)
+    comment_text: Optional[str] = ""
+    platform: str = "telegram"
+
+class TGAutomationRunRequest(BaseModel):
+    task_type: str = Field("Group Join & Post")
+    selected_accounts: List[str] = Field(..., min_items=1)
+    group_cap: int = 0
+    post_content_single: Optional[str] = ""
+    post_content_custom: Optional[Dict[str, str]] = None
+    run_dm_check: bool = False
+
+
+@app.get("/api/telegram/accounts")
+def get_telegram_accounts():
+    accounts = auto_db.load_accounts()
+    tg_accs = [a for a in accounts if a.get("platform", "").lower() in ("telegram", "tg")]
+    return {"accounts": tg_accs}
+
+@app.post("/api/telegram/accounts")
+def add_or_update_telegram_account(payload: TGAccountRequest):
+    telegram_dict = {
+        "api_id": payload.api_id or 39197157,
+        "api_hash": payload.api_hash or "5de576dd64aae68a18f5114761e539d7",
+        "session_string": payload.session_string.strip()
+    }
+    success = auto_db.add_account(
+        account_id=payload.account_id,
+        platform="telegram",
+        proxy=payload.proxy or "",
+        status=payload.status,
+        session_dir=f"./sessions/{payload.account_id.strip()}",
+        telegram=telegram_dict
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to save account. Account ID is required.")
+    return {"status": "success", "account_id": payload.account_id}
+
+@app.delete("/api/telegram/accounts/{account_id}")
+def delete_telegram_account(account_id: str):
+    removed = auto_db.delete_account(account_id, platform="telegram")
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Telegram account '{account_id}' not found.")
+    return {"status": "success", "message": f"Telegram account '{account_id}' removed."}
+
+@app.get("/api/telegram/groups")
+def get_telegram_groups():
+    groups = auto_db.load_groups()
+    tg_groups = [g for g in groups if g.get("platform", "").lower() in ("telegram", "tg")]
+    return {"groups": tg_groups}
+
+@app.post("/api/telegram/groups/import")
+def import_telegram_groups(payload: TGImportGroupsRequest):
+    added = auto_db.import_groups(payload.urls, platform="telegram", post_content=payload.post_content or "")
+    return {"status": "success", "added_count": added}
+
+@app.get("/api/telegram/posts")
+def get_telegram_posts():
+    posts = auto_db.load_posts()
+    tg_posts = [p for p in posts if p.get("platform", "").lower() in ("telegram", "tg")]
+    return {"posts": tg_posts}
+
+@app.post("/api/telegram/posts/import")
+def import_telegram_posts(payload: TGImportPostsRequest):
+    added = auto_db.import_posts(payload.urls, comment_text=payload.comment_text or "", platform="telegram")
+    return {"status": "success", "added_count": added}
+
+def _execute_tg_batch(payload: TGAutomationRunRequest):
+    payload_dict = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+    execute_telegram_automation_batch(payload_dict)
+
+@app.post("/api/telegram/automation/start")
+def start_telegram_automation(payload: TGAutomationRunRequest, background_tasks: BackgroundTasks):
+    if not payload.selected_accounts:
+        raise HTTPException(status_code=400, detail="Please select at least one Telegram account.")
+    
+    if TG_AUTOMATION_STATE.get("is_running"):
+        raise HTTPException(status_code=400, detail="Telegram automation is already running.")
+
+    background_tasks.add_task(_execute_tg_batch, payload)
+    return {
+        "status": "started",
+        "task_type": payload.task_type,
+        "selected_accounts": payload.selected_accounts,
+        "message": "Telegram automation runner launched in background."
+    }
+
+@app.get("/api/telegram/automation/status")
+def get_telegram_automation_status():
+    state = get_tg_automation_state()
+    all_groups = auto_db.load_groups()
+    all_posts = auto_db.load_posts()
+    all_logs = auto_db.load_logs()
+    tg_groups = [g for g in all_groups if g.get("platform", "").lower() in ("telegram", "tg")]
+    tg_posts = [p for p in all_posts if p.get("platform", "").lower() in ("telegram", "tg")]
+    return {
+        "state": state,
+        "groups": tg_groups,
+        "posts": tg_posts,
+        "logs": all_logs
+    }
+
+@app.post("/api/telegram/automation/stop")
+def stop_telegram_automation():
+    request_tg_stop_automation()
+    return {"status": "success", "message": "Telegram stop signal sent."}
+
+@app.get("/api/telegram/logs")
+def get_telegram_logs():
+    logs = auto_db.load_logs()
+    return {"logs": logs}
+
+@app.delete("/api/telegram/logs")
+def clear_telegram_logs():
     auto_db.clear_logs()
     return {"status": "success"}
 

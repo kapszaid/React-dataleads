@@ -6,7 +6,8 @@ function Sidebar({ activeTab, setActiveTab, onLogout }) {
 
   const menuItems = [
     'Facebook Groups Extractor (Apify)',
-    'Facebook Auto Post Engine'
+    'Facebook Auto Post Engine',
+    'Telegram Auto Post Engine'
   ];
 
   return (

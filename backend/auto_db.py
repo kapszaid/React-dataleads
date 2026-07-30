@@ -120,7 +120,7 @@ def save_accounts(accounts: List[Dict]):
     _write_json(ACCOUNTS_FILE, accounts)
 
 
-def add_account(account_id: str, platform: str = "facebook", cookies: Optional[List[Dict]] = None, proxy: str = "", status: str = "active", session_dir: str = "") -> bool:
+def add_account(account_id: str, platform: str = "facebook", cookies: Optional[List[Dict]] = None, proxy: str = "", status: str = "active", session_dir: str = "", telegram: Optional[Dict] = None) -> bool:
     account_id = account_id.strip()
     if not account_id:
         return False
@@ -130,6 +130,8 @@ def add_account(account_id: str, platform: str = "facebook", cookies: Optional[L
             acc["cookies"] = cookies or acc.get("cookies", [])
             acc["proxy"] = proxy or acc.get("proxy", "")
             acc["status"] = status
+            if telegram:
+                acc["telegram"] = telegram
             save_accounts(accounts)
             if cookies:
                 save_account_session_state(account_id, cookies=cookies)
@@ -143,6 +145,8 @@ def add_account(account_id: str, platform: str = "facebook", cookies: Optional[L
         "status": status,
         "created_at": datetime.now().isoformat()
     }
+    if telegram:
+        new_acc["telegram"] = telegram
     accounts.append(new_acc)
     save_accounts(accounts)
     if cookies:
@@ -263,7 +267,7 @@ def claim_specific_group_task(account_id: str, group_url: str) -> bool:
     return False
 
 
-def finalize_group_task(account_id: str, group_url: str, status: str, note: str = "", post_content: str = ""):
+def finalize_group_task(account_id: str, group_url: str, status: str, note: str = "", post_content: str = "", message_link: str = ""):
     groups = load_groups()
     for g in groups:
         if g.get("group_url", "").strip().lower() == group_url.strip().lower():
@@ -272,6 +276,8 @@ def finalize_group_task(account_id: str, group_url: str, status: str, note: str 
             g["note"] = note
             if post_content:
                 g["post_content"] = post_content
+            if message_link:
+                g["message_link"] = message_link
             attempted = g.get("attempted_by_accounts", [])
             if account_id and account_id not in attempted:
                 attempted.append(account_id)

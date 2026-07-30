@@ -8,3 +8,5 @@ apify-client
 pymongo>=4.9.0,<4.10.0
 playwright
 playwright-stealth
+telethon
+PySocks
