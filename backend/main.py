@@ -832,11 +832,16 @@ def start_facebook_automation(payload: FBAutomationRunRequest, background_tasks:
 @app.get("/api/facebook/automation/status")
 def get_facebook_automation_status():
     state = get_automation_state()
+    all_groups = auto_db.load_groups()
+    all_posts = auto_db.load_posts()
+    all_logs = auto_db.load_logs()
+    fb_groups = [g for g in all_groups if g.get("platform", "facebook").lower() == "facebook"]
+    fb_posts = [p for p in all_posts if p.get("platform", "facebook").lower() == "facebook"]
     return {
         "state": state,
-        "groups": auto_db.load_groups(),
-        "posts": auto_db.load_posts(),
-        "logs": auto_db.load_logs()
+        "groups": fb_groups,
+        "posts": fb_posts,
+        "logs": all_logs
     }
 
 @app.post("/api/facebook/automation/stop")

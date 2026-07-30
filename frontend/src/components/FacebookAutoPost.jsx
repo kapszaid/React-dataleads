@@ -561,10 +561,12 @@ function FacebookAutoPost() {
                   </thead>
                   <tbody>
                     {taskType === 'Group Join & Post' ? (
-                      groupsQueue.length === 0 ? (
-                        <tr><td colSpan="3" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>
-                      ) : (
-                        groupsQueue.slice(0, 15).map((g, idx) => (
+                      (() => {
+                        const fbGroups = groupsQueue.filter(g => (g.platform || 'facebook').toLowerCase() === 'facebook');
+                        if (fbGroups.length === 0) {
+                          return <tr><td colSpan="3" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>;
+                        }
+                        return fbGroups.slice(0, 15).map((g, idx) => (
                           <tr key={idx}>
                             <td>
                               <a href={g.group_url} target="_blank" rel="noreferrer" className="fb-link">
@@ -576,8 +578,8 @@ function FacebookAutoPost() {
                               <span className={`fb-badge ${g.status}`}>{g.status}</span>
                             </td>
                           </tr>
-                        ))
-                      )
+                        ));
+                      })()
                     ) : (
                       postsQueue.length === 0 ? (
                         <tr><td colSpan="3" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>

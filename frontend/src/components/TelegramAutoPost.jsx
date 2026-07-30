@@ -502,10 +502,12 @@ function TelegramAutoPost() {
                     </tr>
                   </thead>
                   <tbody>
-                    {groupsQueue.length === 0 ? (
-                      <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>
-                    ) : (
-                      groupsQueue.slice(0, 50).map((g, idx) => {
+                    {(() => {
+                      const tgGroups = groupsQueue.filter(g => (g.platform || '').toLowerCase() === 'telegram' || (g.platform || '').toLowerCase() === 'tg');
+                      if (tgGroups.length === 0) {
+                        return <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No items in queue.</td></tr>;
+                      }
+                      return tgGroups.slice(0, 50).map((g, idx) => {
                         const attemptedStr = (g.attempted_by_accounts && g.attempted_by_accounts.length > 0)
                           ? g.attempted_by_accounts.join(', ')
                           : (g.attempted_post_by ? g.attempted_post_by.join(', ') : '—');
@@ -530,8 +532,8 @@ function TelegramAutoPost() {
                             </td>
                           </tr>
                         );
-                      })
-                    )}
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -699,10 +701,12 @@ function TelegramAutoPost() {
                   </tr>
                 </thead>
                 <tbody>
-                  {groupsQueue.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No groups in queue.</td></tr>
-                  ) : (
-                    groupsQueue.map((g, idx) => {
+                  {(() => {
+                    const tgGroups = groupsQueue.filter(g => (g.platform || '').toLowerCase() === 'telegram' || (g.platform || '').toLowerCase() === 'tg');
+                    if (tgGroups.length === 0) {
+                      return <tr><td colSpan="5" style={{ textAlign: 'center', color: '#94a3b8' }}>No groups in queue.</td></tr>;
+                    }
+                    return tgGroups.map((g, idx) => {
                       const attemptedStr = (g.attempted_by_accounts && g.attempted_by_accounts.length > 0)
                         ? g.attempted_by_accounts.join(', ')
                         : (g.attempted_post_by ? g.attempted_post_by.join(', ') : '—');
@@ -723,8 +727,8 @@ function TelegramAutoPost() {
                           </td>
                         </tr>
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
