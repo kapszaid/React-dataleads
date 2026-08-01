@@ -30,13 +30,18 @@ function Login({ onLoginSuccess }) {
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.detail || 'Login failed.');
       }
 
-      const data = await response.json();
       localStorage.setItem('username', data.username);
+      if (data.expires_at) {
+        localStorage.setItem('user_expires_at', data.expires_at);
+      } else {
+        localStorage.removeItem('user_expires_at');
+      }
       onLoginSuccess(data.username);
     } catch (err) {
       console.error(err);

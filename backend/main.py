@@ -5,7 +5,7 @@ import json
 import logging
 import requests
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple, Union, Any
 from fastapi import FastAPI, HTTPException, status, Header, BackgroundTasks
 import auto_db
@@ -110,6 +110,18 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     username: str
     status: str
+    expires_at: Optional[str] = None
+
+class SetUserExpirationRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=150)
+    days: Optional[int] = Field(None, ge=1, le=3650)
+    expires_at: Optional[str] = Field(None, max_length=100)
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=1, max_length=150)
+    days: Optional[int] = Field(30, ge=1, le=3650)
+    expires_at: Optional[str] = Field(None, max_length=100)
 
 class EnhanceRequest(BaseModel):
     keyword: str = Field(..., min_length=1, max_length=500)
@@ -286,6 +298,80 @@ def debug_token():
         "mongo_db_name": MONGO_DB_NAME
     }
 
+def check_user_expiration(user_doc: dict) -> Tuple[bool, Optional[str]]:
+    """
+    Checks if a user document has expired.
+    Returns (is_expired: bool, expiry_iso_str: Optional[str]).
+    """
+    if user_doc.get("is_expired") is True or user_doc.get("expired") is True:
+        return True, "Account set to expired"
+
+    expiry_val = (
+        user_doc.get("expires_at")
+        or user_doc.get("expire_at")
+        or user_doc.get("expiry_date")
+        or user_doc.get("expiry")
+        or user_doc.get("expire")
+        or user_doc.get("expiration_date")
+    )
+    
+    if not expiry_val:
+        return False, None
+
+    now = datetime.now()
+
+    if isinstance(expiry_val, datetime):
+        exp_dt = expiry_val
+        if exp_dt.tzinfo is not None:
+            now = datetime.now(timezone.utc)
+        if now > exp_dt:
+            return True, exp_dt.isoformat()
+        return False, exp_dt.isoformat()
+
+    if isinstance(expiry_val, (int, float)):
+        ts = float(expiry_val)
+        if ts > 1e11:  # milliseconds
+            ts /= 1000.0
+        exp_dt = datetime.fromtimestamp(ts)
+        if now > exp_dt:
+            return True, exp_dt.isoformat()
+        return False, exp_dt.isoformat()
+
+    if isinstance(expiry_val, str):
+        val_str = expiry_val.strip()
+        if not val_str:
+            return False, None
+        
+        clean_str = val_str.replace("Z", "+00:00")
+        parsed_dt = None
+        try:
+            parsed_dt = datetime.fromisoformat(clean_str)
+        except Exception:
+            formats = [
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d",
+            ]
+            for fmt in formats:
+                try:
+                    parsed_dt = datetime.strptime(val_str, fmt)
+                    break
+                except Exception:
+                    pass
+        
+        if parsed_dt:
+            if parsed_dt.tzinfo is not None:
+                now = datetime.now(timezone.utc)
+            if now > parsed_dt:
+                return True, parsed_dt.isoformat()
+            return False, parsed_dt.isoformat()
+
+    return False, str(expiry_val)
+
+
 @app.post("/api/login", response_model=LoginResponse)
 def login_user(payload: LoginRequest):
     if db is None:
@@ -309,8 +395,100 @@ def login_user(payload: LoginRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password."
         )
+
+    # Check expiration
+    is_expired, expiry_str = check_user_expiration(user_doc)
+    if is_expired:
+        msg = "Your account access has expired. Please contact support to renew access."
+        if expiry_str:
+            msg += f" (Expired on: {expiry_str[:10]})"
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=msg
+        )
         
-    return LoginResponse(username=payload.username, status="success")
+    return LoginResponse(
+        username=payload.username,
+        status="success",
+        expires_at=expiry_str
+    )
+
+
+@app.post("/api/users/set-expiration")
+def set_user_expiration(payload: SetUserExpirationRequest):
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable."
+        )
+    
+    user_doc = db.users.find_one({"username": payload.username})
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User '{payload.username}' not found."
+        )
+    
+    if payload.days is not None:
+        exp_dt = datetime.now() + timedelta(days=payload.days)
+        expiry_str = exp_dt.isoformat()
+    elif payload.expires_at:
+        expiry_str = payload.expires_at
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Must provide either 'days' or 'expires_at'."
+        )
+        
+    db.users.update_one(
+        {"username": payload.username},
+        {"$set": {"expires_at": expiry_str, "is_expired": False}}
+    )
+    return {
+        "status": "success",
+        "username": payload.username,
+        "expires_at": expiry_str,
+        "message": f"Expiration set to {expiry_str} for user '{payload.username}'."
+    }
+
+
+@app.post("/api/users/create")
+def create_user(payload: CreateUserRequest):
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is unavailable."
+        )
+    
+    existing = db.users.find_one({"username": payload.username})
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User '{payload.username}' already exists."
+        )
+        
+    if payload.expires_at:
+        expiry_str = payload.expires_at
+    elif payload.days is not None:
+        exp_dt = datetime.now() + timedelta(days=payload.days)
+        expiry_str = exp_dt.isoformat()
+    else:
+        expiry_str = None
+        
+    user_data = {
+        "username": payload.username,
+        "password": payload.password,
+        "expires_at": expiry_str,
+        "is_expired": False,
+        "created_at": datetime.now().isoformat()
+    }
+    db.users.insert_one(user_data)
+    return {
+        "status": "success",
+        "username": payload.username,
+        "expires_at": expiry_str,
+        "message": f"User '{payload.username}' created successfully."
+    }
 
 @app.post("/api/enhance", response_model=EnhanceResponse)
 def enhance_keyword(payload: EnhanceRequest):
